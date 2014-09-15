@@ -959,6 +959,9 @@
     </settings>
   </configuration>
   <file>
+    <name>$PROJ_DIR$\..\communication.c</name>
+  </file>
+  <file>
     <name>$PROJ_DIR$\..\device_status.c</name>
   </file>
   <file>

@@ -99,6 +99,7 @@
 //#include "tmp006drv.h"
 //#include "bma222drv.h"
 #include "pinmux.h"
+#include "communication.h"
 
 #define APPLICATION_VERSION              "0.1.0"
 #define APP_NAME                         "Wifi App"
@@ -112,6 +113,17 @@
 
 #define LED_TASK_PRIORITY              2
 #define LED_STACK_SIZE                 1024
+
+#define TCP_TASK_PRIORITY              3
+#define TCP_STACK_SIZE                 1024
+
+#define TCPRECV_TASK_PRIORITY              4
+#define TCPRECV_STACK_SIZE                 1024
+
+#define IP_ADDR             0xc0a80165 /* 192.168.0.110 */
+#define PORT_NUM            5001
+#define BUF_SIZE            14
+#define BUF_RECV_SIZE            1024
 
 typedef enum
 {
@@ -136,6 +148,12 @@ static unsigned long  g_ulStatus = 0;//SimpleLink Status
 static unsigned char  g_ucConnectionSSID[SSID_LEN_MAX+1]; //Connection SSID
 static unsigned char  g_ucConnectionBSSID[BSSID_LEN_MAX]; //Connection BSSID
 
+static int g_iConfigOK = FAILURE;
+static int g_iTcpSocketID = -1;
+
+char g_cBsdBuf[BUF_SIZE];
+char g_cBsdRecvBuf[BUF_RECV_SIZE];
+
 
 #if defined(ccs)
 extern void (* const g_pfnVectors[])(void);
@@ -143,6 +161,11 @@ extern void (* const g_pfnVectors[])(void);
 #if defined(ewarm)
 extern uVectorEntry __vector_table;
 #endif
+
+
+static void TcpTask(void *pvParameters);
+static void TcpRecvTask(void *pvParameters);
+
 //*****************************************************************************
 //                 GLOBAL VARIABLES -- End
 //*****************************************************************************
@@ -940,11 +963,127 @@ static void OOBTask(void *pvParameters)
         ERR_PRINT(lRetVal);
         LOOP_FOREVER();
     }
+	g_iConfigOK = SUCCESS;  // todo
+	if(g_iConfigOK == SUCCESS)
+	{
+          UART_PRINT("before create socket task\n");
+		  lRetVal = osi_TaskCreate(TcpRecvTask, (signed char*)"TcpRecvTask", \
+                                TCPRECV_STACK_SIZE, NULL, \
+                                TCPRECV_TASK_PRIORITY, NULL );
+								
+		if(lRetVal < 0)
+		{
+			ERR_PRINT(lRetVal);
+			LOOP_FOREVER();
+		}
+		
+	}
 
     //Handle Async Events
     while(1)
     {
-        osi_Sleep(2000);
+        //LED Actions
+        if(g_ucLEDStatus == LED_ON)
+        {
+            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+            osi_Sleep(500);
+        }
+        if(g_ucLEDStatus == LED_OFF)
+        {
+            GPIO_IF_LedOff(MCU_RED_LED_GPIO);
+            osi_Sleep(500);
+        }
+        if(g_ucLEDStatus==LED_BLINK)
+        {
+            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+            osi_Sleep(500);
+            GPIO_IF_LedOff(MCU_RED_LED_GPIO);
+            osi_Sleep(500);
+        }
+    }
+}
+
+static void TcpTask(void *pvParameters)
+{
+  long   lRetVal = -1;
+  int             iCounter;
+  int             iStatus;
+	short           sTestBufLen;
+	UART_PRINT("in socket task\n");
+	// filling the buffer
+    for (iCounter=0 ; iCounter<BUF_SIZE ; iCounter++)
+    {
+        g_cBsdBuf[iCounter] = (char)(iCounter);
+    }
+
+    sTestBufLen  = BUF_SIZE;
+	
+	
+	
+    //Handle Async Events
+    while(1)
+    {
+        // sending packet
+        iStatus = sl_Send(g_iTcpSocketID, g_cBsdBuf, sTestBufLen, 0 );
+        if( iStatus <= 0 )
+        {
+          sl_Close(g_iTcpSocketID);
+            // error
+          ERR_PRINT(iStatus);
+			LOOP_FOREVER();
+        }
+		osi_Sleep(3000);
+    }
+}
+
+static void TcpRecvTask(void *pvParameters)
+{
+	int i;
+        long   lRetVal = -1;
+  int             iCounter;
+  int             iStatus;
+	short           sTestBufLen;
+	UART_PRINT("in socket recv task\n");
+	// filling the buffer
+    for (iCounter=0 ; iCounter<BUF_RECV_SIZE ; iCounter++)
+    {
+        g_cBsdRecvBuf[iCounter] = (char)(0);
+    }
+
+    sTestBufLen  = BUF_RECV_SIZE;
+	
+	
+	
+	// create tcp socket
+	g_iTcpSocketID = BsdTcpClient(IP_ADDR, PORT_NUM);
+	
+	lRetVal = osi_TaskCreate(TcpTask, (signed char*)"TcpTask", \
+                                TCP_STACK_SIZE, NULL, \
+                                TCP_TASK_PRIORITY, NULL );
+								
+		if(lRetVal < 0)
+		{
+			ERR_PRINT(lRetVal);
+			LOOP_FOREVER();
+		} 
+	
+    //Handle Async Events
+    while(1)
+    {
+        // sending packet
+        iStatus = sl_Recv(g_iTcpSocketID, g_cBsdRecvBuf, sTestBufLen, 0 );
+		UART_PRINT("recv len = %d\n", iStatus);
+        if( iStatus <= 0 )
+        {
+          sl_Close(g_iTcpSocketID);
+            // error
+          ERR_PRINT(iStatus);
+			LOOP_FOREVER();
+        }
+		for(i = 0; i < iStatus; i++)
+		{
+			UART_PRINT("0x%x\n", g_cBsdRecvBuf[i]);
+		}
     }
 }
 
@@ -1098,10 +1237,11 @@ void main()
     //
     // Create OOB Task
     //
-    lRetVal = osi_TaskCreate(LEDTask, (signed char*)"LEDTask", \
+    //lRetVal = osi_TaskCreate(LEDTask, (signed char*)"LEDTask", \
                                 LED_STACK_SIZE, NULL, \
                                 LED_TASK_PRIORITY, NULL );
 
+	
     //
     // Start OS Scheduler
     //
