@@ -93,6 +93,9 @@
     <name>$PROJ_DIR$\..\device_status.c</name>
   </file>
   <file>
+    <name>$PROJ_DIR$\..\fileoperator.c</name>
+  </file>
+  <file>
     <name>$PROJ_DIR$\..\..\common\gpio_if.c</name>
   </file>
   <file>

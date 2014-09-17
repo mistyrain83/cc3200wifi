@@ -1,34 +1,196 @@
 <!DOCTYPE html>
-
 <!--[if lte IE 9 ]> <html class="ie"> <![endif]-->
 <!--[if (gt IE 9)|!(IE)]><!--> <html> <!--<![endif]-->
 
 <head>
-
 <link rel="stylesheet" type="text/css" href="simple_link.css">
+<script src="js/jquery-1.8.3.min.js"></script>
+<script type="text/javascript">
 
+	var _count	= 0;
+	var _flag = 0;
+_tmr = setInterval(get_status,5000);
+
+function get_status()
+{
+
+if(_flag == 1)
+{
+
+_flag = 0;
+
+	// helper function for getting token values
+	function getTokenValue(paramPage, tokenId, successFn, failFn) {
+		$.ajax({
+				"type": "GET",
+				"url": paramPage,
+				"cache": false,
+				"dataType": "html"
+			})
+			// define callback for get request success
+			.done(function(getdata, status, xhr) {
+				successFn($(getdata).filter('#'+tokenId).text());
+			})
+			.fail(function(jqxhr, settings, exception) {
+				failFn();
+			});
+			
+	}
+
+
+		getTokenValue('param_status.html', 'Device_Status', 
+					// successFn callback, val is the token value
+					function(val) {
+						if (val == "TRUE") {
+							_flag = 0;
+							alert ("Successfully Connected to AP!!");
+							location.reload();
+							
+							
+						} else {
+							if (val == "FALSE") 
+							{				
+
+								alert ("Connection to AP Failed or Taking too long, Check Security Key and Retry");
+								location.reload();								
+							}
+							else
+							{
+								alert ("Rechecking Status..");
+								if(_count>2)
+								{
+									alert ("AP Connection Status Check Failed - Reconnect and Refresh the page");
+									_flag = 0;
+								}
+								else
+								{
+									_flag = 1;
+								}
+							}
+						}
+					},
+					// failFn callback
+					function() {
+					if(_count<3)
+					{
+						alert ("Oops..It Seems Connection to Device AP is lost, Reconnect and wait for Notification");
+						_flag = 1;
+						
+					}
+					else
+					{
+							alert ("AP Connection Status Check Failed - Reconnect and Refresh the page");
+						
+					}
+					});
+	_count++;				
+}
+}
+
+function on_submit()
+{
+	var whichAnt = 1;
+	if($(':radio[id=Antenna2]').is(':checked'))
+	whichAnt = 2;
+	
+	alert ('Connecting With Antenna  '+whichAnt+' .. Wait for Status' );
+	_count=0;
+	_flag = 1;
+		
+}
+
+
+
+function SwitchAP()
+{
+	alert ("Switching to Station Mode..Connection to the Device AP will be Lost!!");		
+}
+
+$(document).ready(function() {
+   $(':radio[id=Antenna2]').change(function(){
+       $(':radio[id=Ant2SSID1]').prop('checked',true);
+   });
+      $(':radio[id=Antenna1]').change(function(){
+       $(':radio[id=Ant1SSID1]').prop('checked',true);
+   });
+   $(':radio[id=Ant2SSID1]').change(function(){
+       $(':radio[id=Antenna2]').prop('checked',true);
+   });
+   $(':radio[id=Ant1SSID1]').change(function(){
+       $(':radio[id=Antenna1]').prop('checked',true);
+   });
+});
+
+</script>
 
 </head>
 
-<body class="in-frame" onload="UpdateStatus()">
+<body class="in-frame">
 
 <table border="0"  width="100%" cellpadding="3" cellspacing="0">
 
 <tr>  
-<td class="page-title" colspan=2 >
-	My Setting</td>
+<td class="page-title" >
+	My Settings </td>
+	
+</tr>
+
+<form method="POST" name="SimpleLink Configuration" action = "nothing" onsubmit="on_submit()")>  
+<tr>
+  <td class = "empty-line" colspan=2></td>
+ </tr>
+ 
+<tr>
+  <td class="frame-title" colspan=2 > 
+     Add Profile </td>
 </tr>
 
 <tr>
-<td dir=LTR> IP Address: </td>
-<td dir=LTR>__SL_G_N.A </td>
+  <td class = "empty-l-in-box" colspan=2></td>
+</tr>
+
+<tr>
+	<td class="label" dir=LTR> Current IP: </td>
+	<td class="user-input"  dir=LTR><br>
+									  __SL_G_UCI 
+								    <br>
+								   							   
+								   <br></td>
 </tr>
  
- <tr >
+ 
+<tr>
+	<td class="label" dir=LTR> Server IP Address: </td>
+	<td class="user-input" dir=LTR><input type="text" maxlength="15" name="__SL_P_UIP" value ="__SL_G_UIP" />  IP Address, like: 192.168.1.101</td>
+</tr>
+<tr>
+	<td class="label"> Server Port: </td>
+	<td class="user-input"><input type="text" maxlength="4" name="__SL_P_UPT" value ="__SL_G_UPT"/>  Port, like: 5001</td>
+</tr>
+
+<tr>
+  <td class="empty-l-in-box" colspan=2></td>
+ </tr>
+ 
+<tr>
+	<td class="in-a-box" colspan=2  align=center><input type="submit" name="__SL_P_USC" value="Apply" /></td>
+</tr>
+
+<tr>
+  <td class="in-a-box" colspan=2 align=center> Connection with the Control4 will be validated</td>
+ </tr>
+
+<tr>
+  <td class = "empty-l-in-box" colspan=2></td>
+</tr>
+ 
+<tr >
   <td class = "border-l-top" colspan=2 >
   </td>
 </tr>
-</table>
+	 
 
+</table>
+	 
 </body>
 </html>

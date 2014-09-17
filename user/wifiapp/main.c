@@ -83,6 +83,7 @@
 #include "rom_map.h"
 #include "prcm.h"
 #include "pin.h"
+#include "gpio.h"
 
 // OS includes
 #include "osi.h"
@@ -100,6 +101,7 @@
 //#include "bma222drv.h"
 #include "pinmux.h"
 #include "communication.h"
+#include "fileoperator.h"
 
 #define APPLICATION_VERSION              "0.1.0"
 #define APP_NAME                         "Wifi App"
@@ -124,6 +126,9 @@
 #define PORT_NUM            5001
 #define BUF_SIZE            14
 #define BUF_RECV_SIZE            1024
+
+#define MYIP_LEN_MAX  16
+#define MYPORT_LEN_MAX  5
 
 typedef enum
 {
@@ -153,6 +158,14 @@ static int g_iTcpSocketID = -1;
 
 char g_cBsdBuf[BUF_SIZE];
 char g_cBsdRecvBuf[BUF_RECV_SIZE];
+
+unsigned char g_cServerIP[MYIP_LEN_MAX];
+unsigned char g_cServerPort[MYPORT_LEN_MAX];
+
+char g_cCurrentIP[MYIP_LEN_MAX];
+unsigned int g_iIP[4];
+unsigned int g_uiServerIP = 0;
+unsigned short g_usServerPort = 0;
 
 
 #if defined(ccs)
@@ -297,6 +310,7 @@ static unsigned short itoa(char cNum, char *cString)
 
     return length;
 }
+
 
 //*****************************************************************************
 // SimpleLink Asynchronous Event Handlers -- Start
@@ -503,6 +517,13 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.gateway,2),
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.gateway,1),
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.gateway,0));
+			sprintf(g_cCurrentIP, "%d.%d.%d.%d", 
+			SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,3),
+            SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,2),
+            SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,1),
+            SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,0));
+ //UART_PRINT("current ip = %s \n", inet_ntoa(pNetAppEvent->EventData.ipAcquiredV4.ip))
+			//memcpy(g_cCurrentIP, inet_ntoa(pNetAppEvent->EventData.ipAcquiredV4.ip), sizeof(pNetAppEvent->EventData.ipAcquiredV4.ip));
 
             UNUSED(pEventData);
         }
@@ -573,17 +594,42 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
             pSlHttpServerResponse->ResponseData.token_value.len = 0;
             
 
-            if(memcmp(pSlHttpServerEvent->EventData.httpTokenName.data, 
-                      GET_token_UIC, strlen((const char *)GET_token_UIC)) == 0)
-            {
-                if(g_iInternetAccess==0)
-                    strcpy((char*)pSlHttpServerResponse->ResponseData.token_value.data,"1");
-                else
-                    strcpy((char*)pSlHttpServerResponse->ResponseData.token_value.data,"0");
-                pSlHttpServerResponse->ResponseData.token_value.len =  1;
-            }
+           
 
-
+		if (0== memcmp (pSlHttpServerEvent->EventData.httpTokenName.data, \
+                                  "__SL_G_UCI", \
+                                  pSlHttpServerEvent->EventData.httpTokenName.len))
+              {
+                  
+                  // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
+                  memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
+                          g_cCurrentIP,sizeof(g_cCurrentIP));
+                  pSlHttpServerResponse->ResponseData.token_value.len = 13;
+                     
+              }
+		else if (0== memcmp (pSlHttpServerEvent->EventData.httpTokenName.data, \
+                                  "__SL_G_UIP", \
+                                  pSlHttpServerEvent->EventData.httpTokenName.len))
+              {
+                  
+                  // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
+                  memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
+                          "192.168.1.101",13);
+                  pSlHttpServerResponse->ResponseData.token_value.len = 13;
+                     
+              }
+		else if (0== memcmp (pSlHttpServerEvent->EventData.httpTokenName.data, \
+                                  "__SL_G_UPT", \
+                                  pSlHttpServerEvent->EventData.httpTokenName.len))
+              {
+                  
+                  // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
+                  memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
+                          "5001",4);
+                  pSlHttpServerResponse->ResponseData.token_value.len = 4;
+                     
+              }
+			  
 
         }
             break;
@@ -592,6 +638,58 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
         {
             unsigned char led;
             unsigned char *ptr = pSlHttpServerEvent->EventData.httpPostData.token_name.data;
+			
+			/* Post request - print post values */
+              DBG_PRINT("Post request\n\r");
+
+              if ((0 == memcmp (pSlHttpServerEvent->EventData.httpPostData.token_name.data, \
+                                "__SL_P_USC", \
+                pSlHttpServerEvent->EventData.httpPostData.token_name.len)) && \
+                (0 == memcmp (pSlHttpServerEvent->EventData.httpPostData.token_value.data, \
+                                  "Apply", \
+                   pSlHttpServerEvent->EventData.httpPostData.token_value.len)))
+              {
+			  	  g_iConfigOK = SUCCESS;  // todo SUCCESS;
+                  UART_PRINT("Catch Apply Button\n\r");
+              }
+              
+              
+              
+              
+              if (0 == memcmp (pSlHttpServerEvent->EventData.httpPostData.token_name.data, \
+                               "__SL_P_UIP", \
+                               pSlHttpServerEvent->EventData.httpPostData.token_name.len))
+              {
+                  memcpy (g_cServerIP,pSlHttpServerEvent->EventData.httpPostData.token_value.data, \
+                          pSlHttpServerEvent->EventData.httpPostData.token_value.len);
+                  
+                  g_cServerIP[pSlHttpServerEvent->EventData.httpPostData.token_value.len] = 0;
+                  
+				  UART_PRINT("len %d Server IP: %s\n\r", pSlHttpServerEvent->EventData.httpPostData.token_value.len, g_cServerIP);
+				  sscanf (g_cServerIP,"%d.%d.%d.%d", &g_iIP[0], &g_iIP[1], &g_iIP[2], &g_iIP[3]);
+				  UART_PRINT("ip = %d.%d.%d.%d\n", g_iIP[3],g_iIP[2],g_iIP[1],g_iIP[0]);
+				  UART_PRINT("ip = 0x%x\n", htonl(SL_IPV4_VAL(g_iIP[3],g_iIP[2],g_iIP[1],g_iIP[0])));
+				  g_uiServerIP = htonl(SL_IPV4_VAL(g_iIP[3],g_iIP[2],g_iIP[1],g_iIP[0]));
+              }
+              
+              if (0 == memcmp (pSlHttpServerEvent->EventData.httpPostData.token_name.data, \
+                                "__SL_P_UPT", \
+                               pSlHttpServerEvent->EventData.httpPostData.token_name.len))
+              {
+                 memcpy (g_cServerPort,pSlHttpServerEvent->EventData.httpPostData.token_value.data, \
+                          pSlHttpServerEvent->EventData.httpPostData.token_value.len);
+                  
+                  g_cServerPort[pSlHttpServerEvent->EventData.httpPostData.token_value.len] = 0;
+                  
+				  UART_PRINT("len %d Server Port: %s\n\r", pSlHttpServerEvent->EventData.httpPostData.token_value.len, g_cServerPort);
+					UART_PRINT("port1 = %d\n", (atoi(g_cServerPort)));
+				  UART_PRINT("port2 = %d\n", htons(atoi(g_cServerPort)));
+				  g_usServerPort = atoi(g_cServerPort);
+              }
+              
+              
+			
+			
 
             //g_ucLEDStatus = 0;
             if(memcmp(ptr, POST_token, strlen((const char *)POST_token)) == 0)
@@ -639,6 +737,7 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                 }
 
             }
+          
         }
             break;
         default:
@@ -963,21 +1062,25 @@ static void OOBTask(void *pvParameters)
         ERR_PRINT(lRetVal);
         LOOP_FOREVER();
     }
-	g_iConfigOK = SUCCESS;  // todo
-	if(g_iConfigOK == SUCCESS)
+
+
+    while(FAILURE == g_iConfigOK)
+    {
+    #ifndef SL_PLATFORM_MULTI_THREADED
+        _SlNonOsMainLoopTask(); 
+    #endif
+    }
+      UART_PRINT("before create socket task\n");
+	  lRetVal = osi_TaskCreate(TcpRecvTask, (signed char*)"TcpRecvTask", \
+                            TCPRECV_STACK_SIZE, NULL, \
+                            TCPRECV_TASK_PRIORITY, NULL );
+							
+	if(lRetVal < 0)
 	{
-          UART_PRINT("before create socket task\n");
-		  lRetVal = osi_TaskCreate(TcpRecvTask, (signed char*)"TcpRecvTask", \
-                                TCPRECV_STACK_SIZE, NULL, \
-                                TCPRECV_TASK_PRIORITY, NULL );
-								
-		if(lRetVal < 0)
-		{
-			ERR_PRINT(lRetVal);
-			LOOP_FOREVER();
-		}
-		
+		ERR_PRINT(lRetVal);
+		LOOP_FOREVER();
 	}
+		
 
     //Handle Async Events
     while(1)
@@ -1000,6 +1103,7 @@ static void OOBTask(void *pvParameters)
             GPIO_IF_LedOff(MCU_RED_LED_GPIO);
             osi_Sleep(500);
         }
+		
     }
 }
 
@@ -1008,7 +1112,7 @@ static void TcpTask(void *pvParameters)
   long   lRetVal = -1;
   int             iCounter;
   int             iStatus;
-	short           sTestBufLen;
+	short           sTestBufLen = 0;
 	UART_PRINT("in socket task\n");
 	// filling the buffer
     for (iCounter=0 ; iCounter<BUF_SIZE ; iCounter++)
@@ -1016,13 +1120,20 @@ static void TcpTask(void *pvParameters)
         g_cBsdBuf[iCounter] = (char)(iCounter);
     }
 
-    sTestBufLen  = BUF_SIZE;
+    //sTestBufLen  = BUF_SIZE;
 	
 	
 	
     //Handle Async Events
     while(1)
     {
+		g_cBsdBuf[0] = 0x10;
+		g_cBsdBuf[1] = 0x01;
+		g_cBsdBuf[2] = 0x20;
+		g_cBsdBuf[3] = 0x01;
+		g_cBsdBuf[4] = GPIO_IF_LedStatus(MCU_RED_LED_GPIO);
+		g_cBsdBuf[5] = 0x00;
+		sTestBufLen = 6;
         // sending packet
         iStatus = sl_Send(g_iTcpSocketID, g_cBsdBuf, sTestBufLen, 0 );
         if( iStatus <= 0 )
@@ -1054,8 +1165,7 @@ static void TcpRecvTask(void *pvParameters)
 	
 	
 	
-	// create tcp socket
-	g_iTcpSocketID = BsdTcpClient(IP_ADDR, PORT_NUM);
+	g_iTcpSocketID = BsdTcpClient(g_uiServerIP, g_usServerPort);
 	
 	lRetVal = osi_TaskCreate(TcpTask, (signed char*)"TcpTask", \
                                 TCP_STACK_SIZE, NULL, \
@@ -1078,11 +1188,45 @@ static void TcpRecvTask(void *pvParameters)
           sl_Close(g_iTcpSocketID);
             // error
           ERR_PRINT(iStatus);
+			if(0 == iStatus)
+			{
+				UART_PRINT("[WARN] Server Closed! Should Re-connect\n");
+			}
 			LOOP_FOREVER();
         }
 		for(i = 0; i < iStatus; i++)
 		{
 			UART_PRINT("0x%x\n", g_cBsdRecvBuf[i]);
+		}
+		// parse receive buf
+		if((g_cBsdRecvBuf[0] == 0x20) && (g_cBsdRecvBuf[1] == 1))
+		{
+			// DO
+			if(g_cBsdRecvBuf[2] == 0x20)
+			{
+				switch(g_cBsdRecvBuf[4])
+				{
+					case 0x00:
+						g_ucLEDStatus = LED_OFF;
+						break;
+					case 0x01:
+						g_ucLEDStatus = LED_ON;
+						break;
+					case 0x02:
+						g_ucLEDStatus = LED_BLINK;
+						break;
+					default:
+						break;
+				}
+			}
+			else
+			{
+				UART_PRINT("[WARN] Not DO!\n");
+			}
+		}
+		else
+		{
+			UART_PRINT("Received Type or Version error!\n");
 		}
     }
 }
@@ -1119,6 +1263,12 @@ static void LEDTask(void *pvParameters)
             osi_Sleep(500);
         }
     }
+}
+
+void SwIntHandler(void)
+{
+  MAP_GPIOIntClear(GPIOA2_BASE, 0x40);
+  UART_PRINT("sw2 pressed\n");
 }
 
 //*****************************************************************************
@@ -1182,6 +1332,7 @@ void main()
 {
     long   lRetVal = -1;
 
+
     //
     // Board Initilization
     //
@@ -1193,6 +1344,9 @@ void main()
     PinMuxConfig();
 
     PinConfigSet(PIN_58,PIN_STRENGTH_2MA|PIN_STRENGTH_4MA,PIN_TYPE_STD_PD);
+    
+    // init sw2 interrupt
+    GPIO_IF_ConfigureNIntEnable(GPIOA2_BASE, 0x40, GPIO_FALLING_EDGE, SwIntHandler);
 
     // Initialize Global Variables
     InitializeAppVariables();
@@ -1203,6 +1357,8 @@ void main()
     InitTerm();
     
     DisplayBanner(APP_NAME);
+    
+  
 
     //
     // LED Init
