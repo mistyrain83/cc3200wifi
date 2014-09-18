@@ -167,6 +167,11 @@ unsigned int g_iIP[4];
 unsigned int g_uiServerIP = 0;
 unsigned short g_usServerPort = 0;
 
+unsigned int g_iSaveFlag = FAILURE;
+unsigned int g_iIPLen = 0;
+unsigned int g_iPortLen = 0;
+unsigned int g_iCurrentIPLen = 0;
+
 
 #if defined(ccs)
 extern void (* const g_pfnVectors[])(void);
@@ -517,7 +522,7 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.gateway,2),
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.gateway,1),
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.gateway,0));
-			sprintf(g_cCurrentIP, "%d.%d.%d.%d", 
+			g_iCurrentIPLen = sprintf(g_cCurrentIP, "%d.%d.%d.%d", 
 			SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,3),
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,2),
             SL_IPV4_BYTE(pNetAppEvent->EventData.ipAcquiredV4.ip,1),
@@ -603,8 +608,8 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                   
                   // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
                   memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
-                          g_cCurrentIP,sizeof(g_cCurrentIP));
-                  pSlHttpServerResponse->ResponseData.token_value.len = 13;
+                          g_cCurrentIP,g_iCurrentIPLen);
+                  pSlHttpServerResponse->ResponseData.token_value.len = g_iCurrentIPLen;
                      
               }
 		else if (0== memcmp (pSlHttpServerEvent->EventData.httpTokenName.data, \
@@ -614,9 +619,9 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                   
                   // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
                   memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
-                          "192.168.1.101",13);
-                  pSlHttpServerResponse->ResponseData.token_value.len = 13;
-                     
+                          g_cServerIP,strlen(g_cServerIP));
+                  pSlHttpServerResponse->ResponseData.token_value.len = strlen(g_cServerIP);
+                     UART_PRINT("ip len = %d\n", strlen(g_cServerIP));
               }
 		else if (0== memcmp (pSlHttpServerEvent->EventData.httpTokenName.data, \
                                   "__SL_G_UPT", \
@@ -625,9 +630,9 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                   
                   // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
                   memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
-                          "5001",4);
-                  pSlHttpServerResponse->ResponseData.token_value.len = 4;
-                     
+                          g_cServerPort,strlen(g_cServerPort));
+                  pSlHttpServerResponse->ResponseData.token_value.len = strlen(g_cServerPort);
+                      UART_PRINT("port len = %d\n", strlen(g_cServerPort));
               }
 			  
 
@@ -651,6 +656,7 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
               {
 			  	  g_iConfigOK = SUCCESS;  // todo SUCCESS;
                   UART_PRINT("Catch Apply Button\n\r");
+				  g_iSaveFlag = SUCCESS;
               }
               
               
@@ -669,6 +675,7 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
 				  sscanf (g_cServerIP,"%d.%d.%d.%d", &g_iIP[0], &g_iIP[1], &g_iIP[2], &g_iIP[3]);
 				  UART_PRINT("ip = %d.%d.%d.%d\n", g_iIP[3],g_iIP[2],g_iIP[1],g_iIP[0]);
 				  UART_PRINT("ip = 0x%x\n", htonl(SL_IPV4_VAL(g_iIP[3],g_iIP[2],g_iIP[1],g_iIP[0])));
+				  UART_PRINT("ip3 = %s\n",g_cServerIP);
 				  g_uiServerIP = htonl(SL_IPV4_VAL(g_iIP[3],g_iIP[2],g_iIP[1],g_iIP[0]));
               }
               
@@ -1062,6 +1069,12 @@ static void OOBTask(void *pvParameters)
         ERR_PRINT(lRetVal);
         LOOP_FOREVER();
     }
+	
+if(ReadFileFromDevice("config.txt", g_cServerIP, g_cServerPort) < 0)
+    {
+        GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+         LOOP_FOREVER();
+    }
 
 
     while(FAILURE == g_iConfigOK)
@@ -1103,7 +1116,15 @@ static void OOBTask(void *pvParameters)
             GPIO_IF_LedOff(MCU_RED_LED_GPIO);
             osi_Sleep(500);
         }
-		
+		if(g_iSaveFlag == SUCCESS)
+		{
+			g_iSaveFlag = FAILURE;
+			if(WriteFileToDevice("config.txt", g_cServerIP, g_cServerPort) < 0)
+		   {
+			   
+			   LOOP_FOREVER();
+		   }
+		}
     }
 }
 
@@ -1376,7 +1397,10 @@ void main()
     {
         ERR_PRINT(lRetVal);
         LOOP_FOREVER();
-    }    
+    } 
+
+	
+	
     
     //
     // Create OOB Task

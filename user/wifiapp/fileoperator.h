@@ -14,16 +14,9 @@ extern "C"
 {
 #endif
 
-#define IP_ADDRESS_LEN_MAX 15
-#define PORT_LEN_MAX 4
+long WriteFileToDevice(unsigned char *pFileName, unsigned char *ip, unsigned char *port);
 
-typedef struct 
-{
-	unsigned char ipAddress[IP_ADDRESS_LEN_MAX];
-	unsigned char port[PORT_LEN_MAX];
-}T_IP_CONFIG;
-
-T_IP_CONFIG ReadConfigFromDevice(unsigned char *pFileName);
+long ReadFileFromDevice(unsigned char *pFileName, unsigned char *ip, unsigned char *port);
 
 //*****************************************************************************
 //
