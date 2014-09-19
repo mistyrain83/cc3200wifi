@@ -11,7 +11,7 @@ ByteLimit=50
 [LMIFTDIDriver]
 LMI_ResetMode=0x00000000
 [DebugChecksum]
-Checksum=787659658
+Checksum=1349745333
 [LMIFTDI]
 LMIFTDIserialNo=cc3200A
 LMIFTDIfoundProbes=FF:cc3200A:
@@ -42,6 +42,7 @@ Count=0
 [Aliases]
 A0=_ "D:\CC32xx\SDK_0.9.0.0_RC\driverlib\prcm.c" ""
 A1=_ "D:\CC32xx\SDK_0.9.0.0_RC\driverlib\udma.c" ""
-A2=_ "D:\CC32xx\SDK_0.9.0.0_RC\third_party\FreeRTOS\source\tasks.c" ""
-Count=3
+A2=_ "D:\CC32xx\SDK_0.9.0.0_RC\simplelink\source\socket.c" ""
+A3=_ "D:\CC32xx\SDK_0.9.0.0_RC\third_party\FreeRTOS\source\tasks.c" ""
+Count=4
 SuppressDialog=1

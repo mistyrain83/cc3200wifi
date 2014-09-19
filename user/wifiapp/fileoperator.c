@@ -1,6 +1,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // Simplelink includes
 #include "simplelink.h"
@@ -52,7 +53,6 @@ typedef enum{
 long WriteFileToDevice(unsigned char *pFileName, unsigned char *ip, unsigned char *port)
 {
     long lRetVal = -1;
-    int iLoopCnt = 0;
 	long lFileHandle = -1;
 	unsigned char str[CONFIG_FILE_LEN_MAX];
 
@@ -139,7 +139,6 @@ long WriteFileToDevice(unsigned char *pFileName, unsigned char *ip, unsigned cha
 long ReadFileFromDevice(unsigned char *pFileName, unsigned char *ip, unsigned char *port)
 {
         long lRetVal = -1;
-    int iLoopCnt = 0;
 	long lFileHandle;
 
 	unsigned char c;

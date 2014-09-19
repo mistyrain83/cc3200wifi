@@ -14,6 +14,7 @@ extern "C"
 #endif
 
 int BsdTcpClient(unsigned int ulDestinationIp, unsigned short usPort);
+int BsdTcpServer(int *iSockID, unsigned short usPort);
 
 //*****************************************************************************
 //

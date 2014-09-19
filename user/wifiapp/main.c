@@ -67,6 +67,7 @@
 // Standard includes
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // Simplelink includes
 #include "simplelink.h"
@@ -102,6 +103,7 @@
 #include "pinmux.h"
 #include "communication.h"
 #include "fileoperator.h"
+#include "do.h"
 
 #define APPLICATION_VERSION              "0.1.0"
 #define APP_NAME                         "Wifi App"
@@ -130,12 +132,26 @@
 #define MYIP_LEN_MAX  16
 #define MYPORT_LEN_MAX  5
 
+#define TCP_LISTEN_PORT 5001
+
+#define DO_MSG_LEN_MIN 7
+
 typedef enum
 {
   LED_OFF = 0,
   LED_ON,
   LED_BLINK
 }eLEDStatus;
+
+// Application specific status/error codes
+typedef enum{
+    // Choosing -0x7D0 to avoid overlap w/ host-driver's error codes
+    TCP_CLIENT_FAILED = -0x7D0,
+    TCP_SERVER_FAILED = TCP_CLIENT_FAILED - 1,
+    DEVICE_NOT_IN_STATION_MODE = TCP_SERVER_FAILED - 1,
+
+    STATUS_CODE_MAX = -0xBB8
+}e_AppStatusCodes;
 
 //*****************************************************************************
 //                 GLOBAL VARIABLES -- Start
@@ -172,6 +188,8 @@ unsigned int g_iIPLen = 0;
 unsigned int g_iPortLen = 0;
 unsigned int g_iCurrentIPLen = 0;
 
+S_DO_CMD g_sRedLed;
+
 
 #if defined(ccs)
 extern void (* const g_pfnVectors[])(void);
@@ -182,7 +200,7 @@ extern uVectorEntry __vector_table;
 
 
 static void TcpTask(void *pvParameters);
-static void TcpRecvTask(void *pvParameters);
+
 
 //*****************************************************************************
 //                 GLOBAL VARIABLES -- End
@@ -265,56 +283,6 @@ void vApplicationMallocFailedHook()
   }
 }
 #endif
-
-//*****************************************************************************
-//
-//! itoa
-//!
-//!    @brief  Convert integer to ASCII in decimal base
-//!
-//!     @param  cNum is input integer number to convert
-//!     @param  cString is output string
-//!
-//!     @return number of ASCII parameters
-//!
-//!
-//
-//*****************************************************************************
-static unsigned short itoa(char cNum, char *cString)
-{
-    char* ptr;
-    char uTemp = cNum;
-    unsigned short length;
-
-    // value 0 is a special case
-    if (cNum == 0)
-    {
-        length = 1;
-        *cString = '0';
-
-        return length;
-    }
-
-    // Find out the length of the number, in decimal base
-    length = 0;
-    while (uTemp > 0)
-    {
-        uTemp /= 10;
-        length++;
-    }
-
-    // Do the actual formatting, right to left
-    uTemp = cNum;
-    ptr = cString + length;
-    while (uTemp > 0)
-    {
-        --ptr;
-        *ptr = pcDigits[uTemp % 10];
-        uTemp /= 10;
-    }
-
-    return length;
-}
 
 
 //*****************************************************************************
@@ -618,10 +586,9 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
               {
                   
                   // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
-                  memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
-                          g_cServerIP,strlen(g_cServerIP));
-                  pSlHttpServerResponse->ResponseData.token_value.len = strlen(g_cServerIP);
-                     UART_PRINT("ip len = %d\n", strlen(g_cServerIP));
+                  //memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
+                  //        g_cServerIP,strlen(g_cServerIP));
+                  //pSlHttpServerResponse->ResponseData.token_value.len = strlen(g_cServerIP);
               }
 		else if (0== memcmp (pSlHttpServerEvent->EventData.httpTokenName.data, \
                                   "__SL_G_UPT", \
@@ -629,10 +596,9 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
               {
                   
                   // Important - Token value len should be < MAX_TOKEN_VALUE_LEN
-                  memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
-                          g_cServerPort,strlen(g_cServerPort));
-                  pSlHttpServerResponse->ResponseData.token_value.len = strlen(g_cServerPort);
-                      UART_PRINT("port len = %d\n", strlen(g_cServerPort));
+                  //memcpy (pSlHttpServerResponse->ResponseData.token_value.data, \
+                  //        g_cServerPort,strlen(g_cServerPort));
+                  //pSlHttpServerResponse->ResponseData.token_value.len = strlen(g_cServerPort);
               }
 			  
 
@@ -842,7 +808,10 @@ static void InitializeAppVariables()
     g_iInternetAccess = -1;
     g_ucDryerRunning = 0;
     g_uiDeviceModeConfig = ROLE_STA; //default is STA mode
-    g_ucLEDStatus = LED_OFF;    
+    g_ucLEDStatus = LED_OFF;
+	g_sRedLed.cmd = DO_CMD_DEFAULT;
+	g_sRedLed.flag = FALSE;
+	g_sRedLed.loopnum = 0;
 }
 
 
@@ -988,8 +957,8 @@ long ConnectToNetwork()
         if(uiConnectTimeoutCnt == AUTO_CONNECTION_TIMEOUT_COUNT)
         {
             //Blink Red LED to Indicate Connection Error
-            g_ucLEDStatus = LED_ON;
-            //GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+            //g_ucLEDStatus = LED_ON;
+            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
             
             CLR_STATUS_BIT_ALL(g_ulStatus);
 
@@ -1004,8 +973,8 @@ long ConnectToNetwork()
             }
     }
     //Turn RED LED Off
-    g_ucLEDStatus = LED_OFF;
-    //GPIO_IF_LedOff(MCU_RED_LED_GPIO);
+    //g_ucLEDStatus = LED_OFF;
+    GPIO_IF_LedOff(MCU_RED_LED_GPIO);
 
     //g_iInternetAccess = ConnectionTest();
 
@@ -1057,7 +1026,13 @@ static void ReadDeviceConfiguration()
 //****************************************************************************
 static void OOBTask(void *pvParameters)
 {
+	int i;
     long   lRetVal = -1;
+	SlSockAddrIn_t  sAddr;
+	int             iAddrSize;
+    int             iSockID;
+    int             iStatus;
+	unsigned short usLoopNum;
 
     //Read Device Mode Configuration
     ReadDeviceConfiguration();
@@ -1069,68 +1044,128 @@ static void OOBTask(void *pvParameters)
         ERR_PRINT(lRetVal);
         LOOP_FOREVER();
     }
+
+	lRetVal = BsdTcpServer(&iSockID, TCP_LISTEN_PORT);
+    if(lRetVal < 0)
+    {
+        UART_PRINT("TCP Server failed\n\r");
+        LOOP_FOREVER();
+    }
+	//UART_PRINT("before accept\n\r");
+    g_iTcpSocketID = SL_EAGAIN;
+
 	
-if(ReadFileFromDevice("config.txt", g_cServerIP, g_cServerPort) < 0)
+    // waiting for an incoming TCP connection
+    while( g_iTcpSocketID < 0 )
     {
-        GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-         LOOP_FOREVER();
-    }
-
-
-    while(FAILURE == g_iConfigOK)
-    {
-    #ifndef SL_PLATFORM_MULTI_THREADED
-        _SlNonOsMainLoopTask(); 
-    #endif
-    }
-      UART_PRINT("before create socket task\n");
-	  lRetVal = osi_TaskCreate(TcpRecvTask, (signed char*)"TcpRecvTask", \
-                            TCPRECV_STACK_SIZE, NULL, \
-                            TCPRECV_TASK_PRIORITY, NULL );
-							
-	if(lRetVal < 0)
-	{
-		ERR_PRINT(lRetVal);
-		LOOP_FOREVER();
-	}
-		
-
-    //Handle Async Events
-    while(1)
-    {
-        //LED Actions
-        if(g_ucLEDStatus == LED_ON)
+		//UART_PRINT("before connect %d\n\r", g_iTcpSocketID);
+        // accepts a connection form a TCP client, if there is any
+        // otherwise returns SL_EAGAIN
+        g_iTcpSocketID = sl_Accept(iSockID, ( struct SlSockAddr_t *)&sAddr, 
+                                (SlSocklen_t*)&iAddrSize);
+        if( g_iTcpSocketID == SL_EAGAIN )
         {
-            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
+           MAP_UtilsDelay(10000);
         }
-        if(g_ucLEDStatus == LED_OFF)
+        else if( g_iTcpSocketID < 0 )
         {
-            GPIO_IF_LedOff(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
+            // error
+            UART_PRINT("[WARN] Accept Error!\n");
+            sl_Close(g_iTcpSocketID);
+            sl_Close(iSockID);
+			//break;
         }
-        if(g_ucLEDStatus==LED_BLINK)
-        {
-            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
-            GPIO_IF_LedOff(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
-        }
-		if(g_iSaveFlag == SUCCESS)
+
+if(g_iTcpSocketID > 0)
+{
+		lRetVal = osi_TaskCreate(TcpTask, (signed char*)"TcpTask", \
+                                TCP_STACK_SIZE, NULL, \
+                                TCP_TASK_PRIORITY, NULL );
+								
+		if(lRetVal < 0)
 		{
-			g_iSaveFlag = FAILURE;
-			if(WriteFileToDevice("config.txt", g_cServerIP, g_cServerPort) < 0)
-		   {
-			   
-			   LOOP_FOREVER();
-		   }
+			UART_PRINT("[WARN] TaskCreate Error!\n");
+			//ERR_PRINT(lRetVal);
+			LOOP_FOREVER();
+		} 
+}
+
+		while(g_iTcpSocketID > 0)
+		{
+			iStatus = sl_Recv(g_iTcpSocketID, g_cBsdRecvBuf, BUF_RECV_SIZE, 0);
+	        if( iStatus <= 0 )
+	        {
+	          // error
+	          UART_PRINT("[WARN] Receive Error!\n");
+	          sl_Close(g_iTcpSocketID);
+	          sl_Close(iSockID);
+			  //g_iTcpSocketID = SL_SOC_ERROR;  // re-connect
+			  //break;
+	        }
+
+			for(i = 0; i < iStatus; i++)
+			{
+				UART_PRINT("0x%x\n\r", g_cBsdRecvBuf[i]);
+			}
+			UART_PRINT("\n");
+			
+
+			// parse receive buf
+			if((g_cBsdRecvBuf[0] == MSG_TYPE_RECV) 
+				&& (g_cBsdRecvBuf[1] == MSG_VER_CONTROL4) 
+				&& (iStatus >= DO_MSG_LEN_MIN))
+			{
+				// DO
+				if(g_cBsdRecvBuf[2] == 0x20)
+				{
+					usLoopNum = ((g_cBsdRecvBuf[5] << 8) + g_cBsdRecvBuf[6])/100;
+					g_sRedLed.loopnum = usLoopNum;
+					switch(g_cBsdRecvBuf[4])
+					{
+						case DO_CMD_OFF:
+							g_sRedLed.cmd = DO_CMD_OFF;
+							if(usLoopNum > 0)
+							{
+								g_sRedLed.flag = TRUE;
+							}
+							break;
+						case DO_CMD_ON:
+							g_sRedLed.cmd = DO_CMD_ON;
+							if(usLoopNum > 0)
+							{
+								g_sRedLed.flag = TRUE;
+							}
+							break;
+						case DO_CMD_TOGGLE:
+							g_sRedLed.cmd = DO_CMD_TOGGLE;
+							if(usLoopNum > 0)
+							{
+								g_sRedLed.flag = TRUE;
+							}
+							break;
+						default:
+							UART_PRINT("[WARN] DO Cmd ERROR!\n");
+							break;
+					}
+				}
+				else
+				{
+					UART_PRINT("[WARN] Not DO Device!\n");
+				}
+			}
+			else
+			{
+				UART_PRINT("Received Type or Version or msg len error!\n");
+			}
+
+			osi_Sleep(3000);
 		}
-    }
+    }	
+
 }
 
 static void TcpTask(void *pvParameters)
 {
-  long   lRetVal = -1;
   int             iCounter;
   int             iStatus;
 	short           sTestBufLen = 0;
@@ -1140,10 +1175,6 @@ static void TcpTask(void *pvParameters)
     {
         g_cBsdBuf[iCounter] = (char)(iCounter);
     }
-
-    //sTestBufLen  = BUF_SIZE;
-	
-	
 	
     //Handle Async Events
     while(1)
@@ -1162,95 +1193,12 @@ static void TcpTask(void *pvParameters)
           sl_Close(g_iTcpSocketID);
             // error
           ERR_PRINT(iStatus);
-			LOOP_FOREVER();
+		  LOOP_FOREVER();
         }
 		osi_Sleep(3000);
     }
 }
 
-static void TcpRecvTask(void *pvParameters)
-{
-	int i;
-        long   lRetVal = -1;
-  int             iCounter;
-  int             iStatus;
-	short           sTestBufLen;
-	UART_PRINT("in socket recv task\n");
-	// filling the buffer
-    for (iCounter=0 ; iCounter<BUF_RECV_SIZE ; iCounter++)
-    {
-        g_cBsdRecvBuf[iCounter] = (char)(0);
-    }
-
-    sTestBufLen  = BUF_RECV_SIZE;
-	
-	
-	
-	g_iTcpSocketID = BsdTcpClient(g_uiServerIP, g_usServerPort);
-	
-	lRetVal = osi_TaskCreate(TcpTask, (signed char*)"TcpTask", \
-                                TCP_STACK_SIZE, NULL, \
-                                TCP_TASK_PRIORITY, NULL );
-								
-		if(lRetVal < 0)
-		{
-			ERR_PRINT(lRetVal);
-			LOOP_FOREVER();
-		} 
-	
-    //Handle Async Events
-    while(1)
-    {
-        // sending packet
-        iStatus = sl_Recv(g_iTcpSocketID, g_cBsdRecvBuf, sTestBufLen, 0 );
-		UART_PRINT("recv len = %d\n", iStatus);
-        if( iStatus <= 0 )
-        {
-          sl_Close(g_iTcpSocketID);
-            // error
-          ERR_PRINT(iStatus);
-			if(0 == iStatus)
-			{
-				UART_PRINT("[WARN] Server Closed! Should Re-connect\n");
-			}
-			LOOP_FOREVER();
-        }
-		for(i = 0; i < iStatus; i++)
-		{
-			UART_PRINT("0x%x\n", g_cBsdRecvBuf[i]);
-		}
-		// parse receive buf
-		if((g_cBsdRecvBuf[0] == 0x20) && (g_cBsdRecvBuf[1] == 1))
-		{
-			// DO
-			if(g_cBsdRecvBuf[2] == 0x20)
-			{
-				switch(g_cBsdRecvBuf[4])
-				{
-					case 0x00:
-						g_ucLEDStatus = LED_OFF;
-						break;
-					case 0x01:
-						g_ucLEDStatus = LED_ON;
-						break;
-					case 0x02:
-						g_ucLEDStatus = LED_BLINK;
-						break;
-					default:
-						break;
-				}
-			}
-			else
-			{
-				UART_PRINT("[WARN] Not DO!\n");
-			}
-		}
-		else
-		{
-			UART_PRINT("Received Type or Version error!\n");
-		}
-    }
-}
 
 //****************************************************************************
 //
@@ -1265,6 +1213,32 @@ static void LEDTask(void *pvParameters)
     //Handle Async Events
     while(1)
     {
+		switch(g_sRedLed.cmd)
+		{
+			case DO_CMD_OFF:
+				GPIO_IF_LedOff(MCU_RED_LED_GPIO);
+				break;
+			case DO_CMD_ON:
+				GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+				break;
+			case DO_CMD_TOGGLE:
+				GPIO_IF_LedToggle(MCU_RED_LED_GPIO);
+				break;
+			default:
+				break;
+			
+		}
+		if(g_sRedLed.flag == TRUE)
+		{
+			g_sRedLed.loopnum--;
+			if(g_sRedLed.loopnum == 0)
+			{
+				g_sRedLed.flag = FALSE;
+				GPIO_IF_LedToggle(MCU_RED_LED_GPIO);
+				g_sRedLed.cmd = DO_CMD_DEFAULT;
+			}
+		}
+		/*
         //LED Actions
         if(g_ucLEDStatus == LED_ON)
         {
@@ -1283,6 +1257,8 @@ static void LEDTask(void *pvParameters)
             GPIO_IF_LedOff(MCU_RED_LED_GPIO);
             osi_Sleep(500);
         }
+        */
+		osi_Sleep(100);
     }
 }
 
@@ -1417,7 +1393,7 @@ void main()
     //
     // Create OOB Task
     //
-    //lRetVal = osi_TaskCreate(LEDTask, (signed char*)"LEDTask", \
+    lRetVal = osi_TaskCreate(LEDTask, (signed char*)"LEDTask", \
                                 LED_STACK_SIZE, NULL, \
                                 LED_TASK_PRIORITY, NULL );
 
