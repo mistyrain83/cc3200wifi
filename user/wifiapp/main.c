@@ -136,6 +136,8 @@
 
 #define DO_MSG_LEN_MIN 7
 
+#define MSG_SEND_LOOP_NUM 20 // 2s =  20*100ms
+
 typedef enum
 {
   LED_OFF = 0,
@@ -189,6 +191,7 @@ unsigned int g_iPortLen = 0;
 unsigned int g_iCurrentIPLen = 0;
 
 S_DO_CMD g_sRedLed;
+unsigned int g_iSendLoopNum = 0;
 
 
 #if defined(ccs)
@@ -1033,6 +1036,8 @@ static void OOBTask(void *pvParameters)
     int             iSockID;
     int             iStatus;
 	unsigned short usLoopNum;
+	long            lNonBlocking = 1;
+	int             iCounter;
 
     //Read Device Mode Configuration
     ReadDeviceConfiguration();
@@ -1045,6 +1050,12 @@ static void OOBTask(void *pvParameters)
         LOOP_FOREVER();
     }
 
+	// filling the buffer
+    for (iCounter=0 ; iCounter<BUF_SIZE ; iCounter++)
+    {
+        g_cBsdBuf[iCounter] = (char)(iCounter);
+    }
+
 	lRetVal = BsdTcpServer(&iSockID, TCP_LISTEN_PORT);
     if(lRetVal < 0)
     {
@@ -1052,11 +1063,11 @@ static void OOBTask(void *pvParameters)
         LOOP_FOREVER();
     }
 	//UART_PRINT("before accept\n\r");
-    g_iTcpSocketID = SL_EAGAIN;
+    //g_iTcpSocketID = SL_EAGAIN;
 
 	
     // waiting for an incoming TCP connection
-    while( g_iTcpSocketID < 0 )
+    while( 1 )
     {
 		//UART_PRINT("before connect %d\n\r", g_iTcpSocketID);
         // accepts a connection form a TCP client, if there is any
@@ -1075,129 +1086,119 @@ static void OOBTask(void *pvParameters)
             sl_Close(iSockID);
 			//break;
         }
-
-if(g_iTcpSocketID > 0)
-{
-		lRetVal = osi_TaskCreate(TcpTask, (signed char*)"TcpTask", \
-                                TCP_STACK_SIZE, NULL, \
-                                TCP_TASK_PRIORITY, NULL );
-								
-		if(lRetVal < 0)
+		else
 		{
-			UART_PRINT("[WARN] TaskCreate Error!\n");
-			//ERR_PRINT(lRetVal);
-			LOOP_FOREVER();
-		} 
-}
+			// setting socket option to make the socket as non blocking
+			iStatus = sl_SetSockOpt(g_iTcpSocketID, SL_SOL_SOCKET, SL_SO_NONBLOCKING, 
+									&lNonBlocking, sizeof(lNonBlocking));
+			if( iStatus < 0 )
+			{
+				UART_PRINT("[WARN] SetSockOpt Error!\n");
+				sl_Close(g_iTcpSocketID);
+				
+			}
+		}
 
-		while(g_iTcpSocketID > 0)
+
+		while(1)
 		{
 			iStatus = sl_Recv(g_iTcpSocketID, g_cBsdRecvBuf, BUF_RECV_SIZE, 0);
-	        if( iStatus <= 0 )
+	        if( iStatus == 0 )
 	        {
 	          // error
-	          UART_PRINT("[WARN] Receive Error!\n");
+	          UART_PRINT("[WARN] Client Closed!\n");
 	          sl_Close(g_iTcpSocketID);
-	          sl_Close(iSockID);
+	          //sl_Close(iSockID);
 			  //g_iTcpSocketID = SL_SOC_ERROR;  // re-connect
-			  //break;
+			  break;
 	        }
 
 			for(i = 0; i < iStatus; i++)
 			{
 				UART_PRINT("0x%x\n\r", g_cBsdRecvBuf[i]);
 			}
-			UART_PRINT("\n");
 			
 
 			// parse receive buf
-			if((g_cBsdRecvBuf[0] == MSG_TYPE_RECV) 
-				&& (g_cBsdRecvBuf[1] == MSG_VER_CONTROL4) 
-				&& (iStatus >= DO_MSG_LEN_MIN))
+			if(iStatus >= DO_MSG_LEN_MIN)
 			{
-				// DO
-				if(g_cBsdRecvBuf[2] == 0x20)
+				if((g_cBsdRecvBuf[0] == MSG_TYPE_RECV) 
+					&& (g_cBsdRecvBuf[1] == MSG_VER_CONTROL4) )
 				{
-					usLoopNum = ((g_cBsdRecvBuf[5] << 8) + g_cBsdRecvBuf[6])/100;
-					g_sRedLed.loopnum = usLoopNum;
-					switch(g_cBsdRecvBuf[4])
+					// DO
+					if(g_cBsdRecvBuf[2] == 0x20)
 					{
-						case DO_CMD_OFF:
-							g_sRedLed.cmd = DO_CMD_OFF;
-							if(usLoopNum > 0)
-							{
-								g_sRedLed.flag = TRUE;
-							}
-							break;
-						case DO_CMD_ON:
-							g_sRedLed.cmd = DO_CMD_ON;
-							if(usLoopNum > 0)
-							{
-								g_sRedLed.flag = TRUE;
-							}
-							break;
-						case DO_CMD_TOGGLE:
-							g_sRedLed.cmd = DO_CMD_TOGGLE;
-							if(usLoopNum > 0)
-							{
-								g_sRedLed.flag = TRUE;
-							}
-							break;
-						default:
-							UART_PRINT("[WARN] DO Cmd ERROR!\n");
-							break;
+						usLoopNum = ((g_cBsdRecvBuf[5] << 8) + g_cBsdRecvBuf[6])/100;
+						g_sRedLed.loopnum = usLoopNum;
+						switch(g_cBsdRecvBuf[4])
+						{
+							case DO_CMD_OFF:
+								g_sRedLed.cmd = DO_CMD_OFF;
+								if(usLoopNum > 0)
+								{
+									g_sRedLed.flag = TRUE;
+								}
+								break;
+							case DO_CMD_ON:
+								g_sRedLed.cmd = DO_CMD_ON;
+								if(usLoopNum > 0)
+								{
+									g_sRedLed.flag = TRUE;
+								}
+								break;
+							case DO_CMD_TOGGLE:
+								g_sRedLed.cmd = DO_CMD_TOGGLE;
+								if(usLoopNum > 0)
+								{
+									g_sRedLed.flag = TRUE;
+								}
+								break;
+							default:
+								UART_PRINT("[WARN] DO Cmd ERROR!\n");
+								break;
+						}
+					}
+					else
+					{
+						UART_PRINT("[WARN] Not DO Device!\n");
 					}
 				}
 				else
 				{
-					UART_PRINT("[WARN] Not DO Device!\n");
+					UART_PRINT("Received Type or Version error!\n");
 				}
 			}
-			else
+
+			// send buf
+			if(g_iSendLoopNum >= MSG_SEND_LOOP_NUM)
 			{
-				UART_PRINT("Received Type or Version or msg len error!\n");
+				g_iSendLoopNum = 0;
+				g_cBsdBuf[0] = 0x10;
+				g_cBsdBuf[1] = 0x01;
+				g_cBsdBuf[2] = 0x20;
+				g_cBsdBuf[3] = 0x01;
+				g_cBsdBuf[4] = GPIO_IF_LedStatus(MCU_RED_LED_GPIO);
+				g_cBsdBuf[5] = 0x00;
+				//sTestBufLen = 6;
+		        // sending packet
+		        iStatus = sl_Send(g_iTcpSocketID, g_cBsdBuf, 6, 0 );
+		        if( iStatus <= 0 )
+		        {
+					UART_PRINT("[WARN] Send ERROR!\n");
+		          sl_Close(g_iTcpSocketID);
+		            // error
+		          
+				  LOOP_FOREVER();
+		        }
 			}
 
-			osi_Sleep(3000);
+			g_iSendLoopNum++;
+			osi_Sleep(100);
 		}
     }	
 
 }
 
-static void TcpTask(void *pvParameters)
-{
-  int             iCounter;
-  int             iStatus;
-	short           sTestBufLen = 0;
-	UART_PRINT("in socket task\n");
-	// filling the buffer
-    for (iCounter=0 ; iCounter<BUF_SIZE ; iCounter++)
-    {
-        g_cBsdBuf[iCounter] = (char)(iCounter);
-    }
-	
-    //Handle Async Events
-    while(1)
-    {
-		g_cBsdBuf[0] = 0x10;
-		g_cBsdBuf[1] = 0x01;
-		g_cBsdBuf[2] = 0x20;
-		g_cBsdBuf[3] = 0x01;
-		g_cBsdBuf[4] = GPIO_IF_LedStatus(MCU_RED_LED_GPIO);
-		g_cBsdBuf[5] = 0x00;
-		sTestBufLen = 6;
-        // sending packet
-        iStatus = sl_Send(g_iTcpSocketID, g_cBsdBuf, sTestBufLen, 0 );
-        if( iStatus <= 0 )
-        {
-          sl_Close(g_iTcpSocketID);
-            // error
-          ERR_PRINT(iStatus);
-		  LOOP_FOREVER();
-        }
-		osi_Sleep(3000);
-    }
-}
 
 
 //****************************************************************************

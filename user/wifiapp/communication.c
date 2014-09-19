@@ -137,7 +137,7 @@ int BsdTcpServer(int *iSockID, unsigned short usPort)
         ASSERT_ON_ERROR(sl_Close(*iSockID));
         ASSERT_ON_ERROR(TCP_SERVER_FAILED);
     }
-
+/*
     // setting socket option to make the socket as non blocking
     iStatus = sl_SetSockOpt(*iSockID, SL_SOL_SOCKET, SL_SO_NONBLOCKING, 
                             &lNonBlocking, sizeof(lNonBlocking));
@@ -146,7 +146,7 @@ int BsdTcpServer(int *iSockID, unsigned short usPort)
         ASSERT_ON_ERROR(sl_Close(*iSockID));
         ASSERT_ON_ERROR(TCP_SERVER_FAILED);
     }
-
+*/
     return SUCCESS;
 }
 
