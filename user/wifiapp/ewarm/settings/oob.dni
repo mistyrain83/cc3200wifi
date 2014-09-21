@@ -11,7 +11,7 @@ ByteLimit=50
 [LMIFTDIDriver]
 LMI_ResetMode=0x00000000
 [DebugChecksum]
-Checksum=183454089
+Checksum=-1830346065
 [LMIFTDI]
 LMIFTDIserialNo=cc3200A
 LMIFTDIfoundProbes=FF:cc3200A:

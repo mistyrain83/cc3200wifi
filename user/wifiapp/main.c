@@ -85,6 +85,7 @@
 #include "prcm.h"
 #include "pin.h"
 #include "gpio.h"
+#include "timer.h"
 
 // OS includes
 #include "osi.h"
@@ -92,6 +93,7 @@
 // Common interface includes
 #include "gpio_if.h"
 #include "uart_if.h"
+#include "timer_if.h"
 //#include "i2c_if.h"
 #include "common.h"
 
@@ -138,6 +140,7 @@
 
 #define MSG_SEND_LOOP_NUM 20 // 2s =  20*100ms
 
+
 typedef enum
 {
   LED_OFF = 0,
@@ -166,12 +169,10 @@ static unsigned char GET_token_UIC[]  = "__SL_G_UIC";
 static int g_iInternetAccess = -1;
 static unsigned char g_ucDryerRunning = 0;
 static unsigned int g_uiDeviceModeConfig = ROLE_STA; //default is STA mode
-static unsigned char g_ucLEDStatus = LED_OFF;
 static unsigned long  g_ulStatus = 0;//SimpleLink Status
 static unsigned char  g_ucConnectionSSID[SSID_LEN_MAX+1]; //Connection SSID
 static unsigned char  g_ucConnectionBSSID[BSSID_LEN_MAX]; //Connection BSSID
 
-static int g_iConfigOK = FAILURE;
 static int g_iTcpSocketID = -1;
 
 char g_cBsdBuf[BUF_SIZE];
@@ -193,6 +194,8 @@ unsigned int g_iCurrentIPLen = 0;
 S_DO_CMD g_sRedLed;
 unsigned int g_iSendLoopNum = 0;
 
+unsigned int g_iSwPressedNum = 0;
+
 
 #if defined(ccs)
 extern void (* const g_pfnVectors[])(void);
@@ -200,9 +203,6 @@ extern void (* const g_pfnVectors[])(void);
 #if defined(ewarm)
 extern uVectorEntry __vector_table;
 #endif
-
-
-static void TcpTask(void *pvParameters);
 
 
 //*****************************************************************************
@@ -623,7 +623,6 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                                   "Apply", \
                    pSlHttpServerEvent->EventData.httpPostData.token_value.len)))
               {
-			  	  g_iConfigOK = SUCCESS;  // todo SUCCESS;
                   UART_PRINT("Catch Apply Button\n\r");
 				  g_iSaveFlag = SUCCESS;
               }
@@ -681,18 +680,15 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                     if(memcmp(ptr, "ON", 2) == 0)
                     {
                         GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-                                                g_ucLEDStatus = LED_ON;
 
                     }
                     else if(memcmp(ptr, "Blink", 5) == 0)
                     {
                         GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-                        g_ucLEDStatus = LED_BLINK;
                     }
                     else
                     {
                         GPIO_IF_LedOff(MCU_RED_LED_GPIO);
-                                                g_ucLEDStatus = LED_OFF;
                     }
                 }
                 else if(led == '2')
@@ -704,7 +700,6 @@ void SimpleLinkHttpServerCallback(SlHttpServerEvent_t *pSlHttpServerEvent,
                     else if(memcmp(ptr, "Blink", 5) == 0)
                     {
                         GPIO_IF_LedOn(MCU_ORANGE_LED_GPIO);
-                        g_ucLEDStatus = 1;
                     }
                     else
                     {
@@ -811,7 +806,6 @@ static void InitializeAppVariables()
     g_iInternetAccess = -1;
     g_ucDryerRunning = 0;
     g_uiDeviceModeConfig = ROLE_STA; //default is STA mode
-    g_ucLEDStatus = LED_OFF;
 	g_sRedLed.cmd = DO_CMD_DEFAULT;
 	g_sRedLed.flag = FALSE;
 	g_sRedLed.loopnum = 0;
@@ -1239,6 +1233,8 @@ static void LEDTask(void *pvParameters)
 				g_sRedLed.cmd = DO_CMD_DEFAULT;
 			}
 		}
+		
+		
 		/*
         //LED Actions
         if(g_ucLEDStatus == LED_ON)
@@ -1265,8 +1261,52 @@ static void LEDTask(void *pvParameters)
 
 void SwIntHandler(void)
 {
-  MAP_GPIOIntClear(GPIOA2_BASE, 0x40);
-  UART_PRINT("sw2 pressed\n");
+	static long L_prevButtonState = 0x00;    
+	static long L_buttonState     = 0x00;
+
+	if(MAP_GPIOIntStatus(GPIOA2_BASE,1) & 0x40)
+	{
+		MAP_GPIOIntClear(GPIOA2_BASE, 0x40);
+	}
+	L_buttonState = GPIOPinRead(GPIOA2_BASE, 0x40);
+	if( !(L_prevButtonState & 0x40) && (L_buttonState & 0x40) )
+	{
+		g_iSwPressedNum++;
+		if(g_iSwPressedNum == 1)
+		{
+			//
+		    // Turn on the timers
+		    //
+		    Timer_IF_Start(TIMERA0_BASE, TIMER_A,
+		                  PERIODIC_TEST_CYCLES * PERIODIC_TEST_LOOPS);
+		}
+		UART_PRINT("sw2 pressed\n");
+	}
+	L_prevButtonState = L_buttonState;
+	MAP_UtilsDelay(400000);
+	
+}
+
+void TimerIntHandler(void)
+{
+	//
+    // Clear the timer interrupt.
+    //
+    Timer_IF_InterruptClear(TIMERA0_BASE);
+	Timer_IF_Stop(TIMERA0_BASE, TIMER_A);
+	switch(g_iSwPressedNum)
+	{
+	case 4:
+		UART_PRINT("pressed 4 times\n");
+		break;
+	case 6:
+		UART_PRINT("pressed 6 times\n");
+		break;
+	default:
+		break;
+	}
+	g_iSwPressedNum = 0;
+	UART_PRINT("clear sw\n");
 }
 
 //*****************************************************************************
@@ -1344,7 +1384,18 @@ void main()
     PinConfigSet(PIN_58,PIN_STRENGTH_2MA|PIN_STRENGTH_4MA,PIN_TYPE_STD_PD);
     
     // init sw2 interrupt
-    GPIO_IF_ConfigureNIntEnable(GPIOA2_BASE, 0x40, GPIO_FALLING_EDGE, SwIntHandler);
+    GPIO_IF_ConfigureNIntEnable(GPIOA2_BASE, 0x40, GPIO_BOTH_EDGES, SwIntHandler);
+
+	// init timer
+	//
+    // Configuring the timers
+    //
+    Timer_IF_Init(PRCM_TIMERA0, TIMERA0_BASE, TIMER_CFG_PERIODIC_UP, TIMER_A, 0);
+	//
+    // Setup the interrupts for the timer timeouts.
+    //
+    Timer_IF_IntSetup(TIMERA0_BASE, TIMER_A, TimerIntHandler);
+	
 
     // Initialize Global Variables
     InitializeAppVariables();

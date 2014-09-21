@@ -111,6 +111,9 @@
     <name>$PROJ_DIR$\..\..\common\startup_ewarm.c</name>
   </file>
   <file>
+    <name>$PROJ_DIR$\..\..\common\timer_if.c</name>
+  </file>
+  <file>
     <name>$PROJ_DIR$\..\..\common\uart_if.c</name>
   </file>
 </project>
