@@ -1126,7 +1126,7 @@ static void OOBTask(void *pvParameters)
 					&& (g_cBsdRecvBuf[1] == MSG_VER_CONTROL4) )
 				{
 					// DO
-					if(g_cBsdRecvBuf[2] == 0x20)
+					if(g_cBsdRecvBuf[2] == 0x21)
 					{
 						usLoopNum = ((g_cBsdRecvBuf[5] << 8) + g_cBsdRecvBuf[6])/100;
 						g_sRedLed.loopnum = usLoopNum;
@@ -1175,7 +1175,7 @@ static void OOBTask(void *pvParameters)
 				g_iSendLoopNum = 0;
 				g_cBsdBuf[0] = 0x10;
 				g_cBsdBuf[1] = 0x01;
-				g_cBsdBuf[2] = 0x20;
+				g_cBsdBuf[2] = 0x21;
 				g_cBsdBuf[3] = 0x01;
 				g_cBsdBuf[4] = GPIO_IF_LedStatus(MCU_RED_LED_GPIO);
 				g_cBsdBuf[5] = 0x00;
