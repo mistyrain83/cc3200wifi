@@ -59,7 +59,8 @@ PinMuxConfig(void)
     MAP_PRCMPeripheralClkEnable(PRCM_GPIOA0, PRCM_RUN_MODE_CLK);
     MAP_PRCMPeripheralClkEnable(PRCM_GPIOA1, PRCM_RUN_MODE_CLK);
 	MAP_PRCMPeripheralClkEnable(PRCM_GPIOA2, PRCM_RUN_MODE_CLK);
-    MAP_PRCMPeripheralClkEnable(PRCM_I2CA0, PRCM_RUN_MODE_CLK);
+
+    MAP_PRCMPeripheralClkEnable(PRCM_TIMERA3, PRCM_RUN_MODE_CLK);
 
     //
     // Configure PIN_55 for UART0 UART0_TX
@@ -86,16 +87,12 @@ PinMuxConfig(void)
 	//
     // Configure PIN_15 for GPIO Input
     //
-	PinTypeGPIO(PIN_15, PIN_MODE_0, false);
+	MAP_PinTypeGPIO(PIN_15, PIN_MODE_0, false);
 	MAP_GPIODirModeSet(GPIOA2_BASE, 0x40, GPIO_DIR_MODE_IN);
 
-    //
-    // Configure PIN_01 for I2C0 I2C_SCL
-    //
-    MAP_PinTypeI2C(PIN_01, PIN_MODE_1);
 
     //
-    // Configure PIN_02 for I2C0 I2C_SDA
+    // Configure PIN_02 for TIMERPWM7 GT_PWM07
     //
-    MAP_PinTypeI2C(PIN_02, PIN_MODE_1);
+    MAP_PinTypeTimer(PIN_02, PIN_MODE_3);
 }

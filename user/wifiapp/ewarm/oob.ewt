@@ -105,6 +105,9 @@
     <name>$PROJ_DIR$\..\pinmux.c</name>
   </file>
   <file>
+    <name>$PROJ_DIR$\..\pwmout.c</name>
+  </file>
+  <file>
     <name>$PROJ_DIR$\..\smartconfig.c</name>
   </file>
   <file>

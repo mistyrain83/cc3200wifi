@@ -106,6 +106,7 @@
 #include "communication.h"
 #include "fileoperator.h"
 #include "do.h"
+#include "pwmout.h"
 
 #define APPLICATION_VERSION              "0.1.0"
 #define APP_NAME                         "Wifi App"
@@ -1152,9 +1153,14 @@ static void OOBTask(void *pvParameters)
 								break;
 						}
 					}
+					else if(g_cBsdRecvBuf[2] == 0x41)  // PWM
+					{
+						UART_PRINT("Update PWM %d\n", ((g_cBsdRecvBuf[5] << 8) + g_cBsdRecvBuf[6]));
+						UpdateDutyCycle(TIMERA3_BASE, TIMER_B, ((g_cBsdRecvBuf[5] << 8) + g_cBsdRecvBuf[6]));
+					}
 					else
 					{
-						UART_PRINT("[WARN] Not DO Device!\n");
+						UART_PRINT("[WARN] Not Know Device!\n");
 					}
 				}
 				else
@@ -1386,7 +1392,7 @@ void main()
     // init sw2 interrupt
     GPIO_IF_ConfigureNIntEnable(GPIOA2_BASE, 0x40, GPIO_BOTH_EDGES, SwIntHandler);
 
-	// init timer
+	// init timer interrupt
 	//
     // Configuring the timers
     //
@@ -1395,6 +1401,16 @@ void main()
     // Setup the interrupts for the timer timeouts.
     //
     Timer_IF_IntSetup(TIMERA0_BASE, TIMER_A, TimerIntHandler);
+
+	// init timer pwm
+	//
+    // TIMERA3 (TIMER A) as GREEN of RGB light. GPIO 11 --> PWM_7
+    //
+    SetupTimerPWMMode(TIMERA3_BASE, TIMER_B, 
+            (TIMER_CFG_SPLIT_PAIR | TIMER_CFG_A_PWM | TIMER_CFG_B_PWM), 1);
+
+    MAP_TimerEnable(TIMERA3_BASE,TIMER_B);
+	UpdateDutyCycle(TIMERA3_BASE, TIMER_B, 0);
 	
 
     // Initialize Global Variables
