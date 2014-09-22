@@ -1209,60 +1209,43 @@ static void OOBTask(void *pvParameters)
 //! \return                        None
 //
 //****************************************************************************
-static void LEDTask(void *pvParameters)
+void TimerCycleIntHandler(void)
 {
-    //Handle Async Events
-    while(1)
-    {
-		switch(g_sRedLed.cmd)
-		{
-			case DO_CMD_OFF:
-				GPIO_IF_LedOff(MCU_RED_LED_GPIO);
-				break;
-			case DO_CMD_ON:
-				GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-				break;
-			case DO_CMD_TOGGLE:
-				GPIO_IF_LedToggle(MCU_RED_LED_GPIO);
-				break;
-			default:
-				break;
-			
-		}
-		if(g_sRedLed.flag == TRUE)
-		{
-			g_sRedLed.loopnum--;
-			if(g_sRedLed.loopnum == 0)
-			{
-				g_sRedLed.flag = FALSE;
-				GPIO_IF_LedToggle(MCU_RED_LED_GPIO);
-				g_sRedLed.cmd = DO_CMD_DEFAULT;
-			}
-		}
+	//
+    // Clear the timer interrupt.
+    //
+    Timer_IF_InterruptClear(TIMERA1_BASE);
+
+	// process event
+	switch(g_sRedLed.cmd)
+	{
+		case DO_CMD_OFF:
+			GPIO_IF_LedOff(MCU_RED_LED_GPIO);
+			g_sRedLed.cmd = DO_CMD_DEFAULT;
+			break;
+		case DO_CMD_ON:
+			GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+			g_sRedLed.cmd = DO_CMD_DEFAULT;
+			break;
+		case DO_CMD_TOGGLE:
+			GPIO_IF_LedToggle(MCU_RED_LED_GPIO);
+			g_sRedLed.cmd = DO_CMD_DEFAULT;
+			break;
+		default:
+			break;
 		
-		
-		/*
-        //LED Actions
-        if(g_ucLEDStatus == LED_ON)
-        {
-            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
-        }
-        if(g_ucLEDStatus == LED_OFF)
-        {
-            GPIO_IF_LedOff(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
-        }
-        if(g_ucLEDStatus==LED_BLINK)
-        {
-            GPIO_IF_LedOn(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
-            GPIO_IF_LedOff(MCU_RED_LED_GPIO);
-            osi_Sleep(500);
-        }
-        */
-		osi_Sleep(100);
-    }
+	}
+	if(g_sRedLed.flag == TRUE)
+	{
+		g_sRedLed.loopnum--;
+		if(g_sRedLed.loopnum == 0)
+		{
+			g_sRedLed.flag = FALSE;
+			GPIO_IF_LedToggle(MCU_RED_LED_GPIO);
+			g_sRedLed.cmd = DO_CMD_DEFAULT;
+		}
+	}
+    
 }
 
 void SwIntHandler(void)
@@ -1402,6 +1385,21 @@ void main()
     //
     Timer_IF_IntSetup(TIMERA0_BASE, TIMER_A, TimerIntHandler);
 
+	// init timer cycle
+	//
+    // Configuring the timers
+    //
+    Timer_IF_Init(PRCM_TIMERA1, TIMERA1_BASE, TIMER_CFG_PERIODIC, TIMER_A, 0);
+	//
+    // Setup the interrupts for the timer timeouts.
+    //
+    Timer_IF_IntSetup(TIMERA1_BASE, TIMER_A, TimerCycleIntHandler);
+	//
+    // Turn on the timers
+    //
+	Timer_IF_Start(TIMERA1_BASE, TIMER_A,
+                  PERIODIC_TEST_CYCLES * PERIODIC_TEST_LOOPS / 50);
+
 	// init timer pwm
 	//
     // TIMERA3 (TIMER A) as GREEN of RGB light. GPIO 11 --> PWM_7
@@ -1461,9 +1459,9 @@ void main()
     //
     // Create OOB Task
     //
-    lRetVal = osi_TaskCreate(LEDTask, (signed char*)"LEDTask", \
-                                LED_STACK_SIZE, NULL, \
-                                LED_TASK_PRIORITY, NULL );
+    //lRetVal = osi_TaskCreate(LEDTask, (signed char*)"LEDTask", \
+    //                            LED_STACK_SIZE, NULL, \
+    //                            LED_TASK_PRIORITY, NULL );
 
 	
     //
